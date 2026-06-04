@@ -1,6 +1,15 @@
 # 企业级本体智能体 (Ontology Intelligence)
 
-基于知识图谱的企业级智能运维分析平台。将 MySQL 关系型数据通过本体映射同步至 Neo4j 图数据库，结合大语言模型（支持 OpenAI / LLM / Qwen / Ollama 等）实现自然语言驱动的智能查询和故障排查。
+Ontology Intelligence Agent is an open-source infrastructure project for ontology-driven knowledge graphs and LLM agents. It combines FastAPI, React, Neo4j, RDF/OWL parsing, relational-to-graph mapping, CDC synchronization, and natural-language graph QA.
+
+本项目由 primary maintainer 持续维护，目标是把关系型业务数据通过本体映射同步到 Neo4j 知识图谱，并通过 LLM/Agent 提供自然语言查询、故障排查和可视化工作台。
+
+## Maintainer Status
+
+- **Maintainer role**: Primary maintainer
+- **Current release**: `v0.1.0`
+- **Maintenance focus**: architecture, releases, documentation, issue triage, privacy/security cleanup, ontology mapping, graph synchronization, and LLM agent workflows
+- **Open-source value**: bridges semantic-web tooling, Neo4j graph synchronization, and practical LLM agent workflows for teams building ontology-backed knowledge graph applications
 
 ## 🏗️ 架构
 
@@ -28,6 +37,14 @@
 - **数据工作台**：本体文件上传、多数据源管理、数据映射编辑、一致性校验
 - **图谱可视化**：力导向图谱浏览，支持节点信息/关系注释/本体约束开关
 - **实时同步**：通过 Kafka/Debezium 实现 CDC 增量数据同步
+
+## 🧭 Roadmap
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work around examples, deployment docs, test coverage, security hardening, and maintainer automation.
+
+## 🤝 Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, validation commands, issue triage, and pull request expectations.
 
 ## 🚀 快速开始
 

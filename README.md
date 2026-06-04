@@ -141,16 +141,6 @@ ontology-intelligence/
 5. 运行验证：`make test`、`cd frontend && npm run build`；外部服务可用时再运行 `make sync` 和 `make verify`。
 6. 用管理员账号完成一次场景创建、本体/映射配置、同步、Agent 初始化、问答、评分和审计查看。
 
-## 🔒 GitHub 发布安全要求
-
-不要直接推送本地 `.git` 历史。公开发布请先执行：
-
-```bash
-bash scripts/create_github_export.sh
-```
-
-然后在导出的干净目录中重新 `git init`。发布前请阅读 `docs/GITHUB_PUBLISHING.md`，并确认 `.env`、`.env.*`、`datasources.yaml`、`data/`、`ontology_workspace/`、数据库文件和本地依赖目录没有进入仓库。
-
 ## 📜 License
 
 MIT

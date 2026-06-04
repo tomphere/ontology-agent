@@ -1,0 +1,63 @@
+# =============================================================================
+# Ontology Intelligence - 统一 Python 依赖列表
+# =============================================================================
+# 说明：合并了根目录和 web-platform/backend 的依赖，使用统一虚拟环境
+# =============================================================================
+
+# ---- Web 框架 ----
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-multipart>=0.0.18
+aiofiles>=24.0.0
+requests>=2.31.0
+
+# ---- 认证 ----
+PyJWT>=2.8.0
+
+# ---- 环境与配置 ----
+python-dotenv>=1.1.0
+pyyaml>=6.0.0
+
+# ---- 数据库驱动（MySQL - 必须） ----
+pymysql>=1.1.0
+
+# ---- 数据库驱动（PostgreSQL - 可选） ----
+psycopg2-binary>=2.9.0
+
+# ---- 数据库驱动（Oracle - 可选，需要 Oracle Instant Client） ----
+oracledb>=2.0.0
+
+# ---- Neo4j ----
+neo4j>=5.28.0
+
+# ---- LLM - 统一 OpenAI 兼容接口 ----
+openai>=1.0.0
+langchain-openai>=0.3.0
+
+# ---- LLM - Gemini 原生支持（可选，也可通过 OpenAI 兼容端点使用） ----
+# google-generativeai>=0.8.0
+# langchain-google-genai>=2.1.0
+
+# ---- LangChain 核心 ----
+langchain-core>=0.3.0
+langchain-neo4j>=0.4.0
+langgraph>=0.4.0
+langgraph-checkpoint-sqlite>=2.0.0
+
+# ---- 文件监听 ----
+watchdog>=6.0.0
+
+# ---- 本体解析（多格式支持：RDF/XML, Turtle, N-Triples, JSON-LD 等） ----
+rdflib>=7.0.0
+pyshacl>=0.27.0
+owlready2>=0.47
+
+# ---- 可观测性 (Langfuse) ----
+langfuse>=2.0.0,<4.0.0
+langsmith>=0.1.0
+
+# ---- Kafka CDC（可选，生产环境使用） ----
+# confluent-kafka>=2.3.0
+
+# ---- 测试 ----
+pytest>=8.0.0

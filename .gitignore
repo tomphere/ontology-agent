@@ -1,0 +1,82 @@
+# =============================================================================
+# Git 忽略规则
+# =============================================================================
+
+# ---- 环境变量（含敏感信息） ----
+.env
+.env.*
+!.env.example
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ---- 虚拟环境 ----
+venv/
+.venv/
+env/
+web-platform/backend/.venv/
+
+# ---- Node.js ----
+node_modules/
+frontend/node_modules/
+web-platform/frontend/node_modules/
+
+# ---- 前端构建产物 ----
+frontend/dist/
+web-platform/frontend/dist/
+
+# ---- 数据库文件 ----
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+
+# ---- 日志 ----
+logs/
+*.log
+
+# ---- 运行时数据 ----
+data/
+chat_sessions/
+sessions_meta.db
+
+# ---- 本体运行时文件 ----
+ontology_workspace/
+
+# ---- 数据源配置（含密码） ----
+datasources.yaml
+
+# ---- IDE ----
+.gemini/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ---- Windows ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ---- Docker ----
+docker-compose.override.yml
+
+# ---- Misc ----
+*.bak
+*.tmp
+*.temp
+*.orig

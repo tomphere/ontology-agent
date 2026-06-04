@@ -1,0 +1,181 @@
+# =============================================================================
+# 企业级本体智能体 - Docker Compose 部署编排文件
+# =============================================================================
+# 说明：在 Linux 服务器上执行 docker-compose up -d 启动所有服务
+# 包含：Neo4j 图数据库（含 n10s + apoc 插件）、WebProtégé 4.0.0
+# 前置条件：Linux 服务器已安装 Docker 和 Docker Compose
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Neo4j 图数据库
+  # ===========================================================================
+  # 用途：存储本体（TBox）和实例数据（ABox），支持图谱查询和向量检索
+  # 插件：
+  #   - n10s (Neosemantics): 用于导入 Protégé 生成的 OWL/RDF 本体文件
+  #   - apoc: 提供丰富的存储过程和函数扩展
+  neo4j:
+    image: neo4j:5.26.0-enterprise        # 使用企业版，支持向量索引和完整 n10s 功能
+    container_name: neo4j-ontology         # 容器名称
+    restart: unless-stopped                # 异常退出自动重启
+    ports:
+      - "7474:7474"                        # HTTP 端口（Web 控制台 + n10s REST 端点）
+      - "7687:7687"                        # Bolt 端口（Python 驱动连接）
+    volumes:
+      - neo4j_data:/data                   # 持久化数据目录
+      - neo4j_logs:/logs                   # 日志目录
+      - neo4j_plugins:/plugins             # 插件目录
+    environment:
+      # ---- 认证配置 ----
+      - NEO4J_AUTH=neo4j/your_neo4j_password  # 初始用户名/密码（请修改）
+      
+      # ---- 企业版许可证 ----
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes    # 接受企业版许可协议
+      
+      # ---- 插件自动安装 ----
+      - NEO4J_PLUGINS=["apoc", "n10s"]        # 自动下载安装 apoc 和 n10s 插件
+
+      # ---- 安全策略（允许 n10s 和 apoc 的存储过程不受限制地执行） ----
+      # Neo4j 5.x 使用 server. 前缀（旧版 dbms. 前缀仍兼容但已废弃）
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,n10s.*
+      - NEO4J_dbms_security_procedures_allowlist=apoc.*,n10s.*
+      
+      # ---- APOC 配置 ----
+      - NEO4J_apoc_export_file_enabled=true    # 允许文件导出
+      - NEO4J_apoc_import_file_enabled=true    # 允许文件导入
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+      
+      # ---- 内存配置（根据服务器内存调整） ----
+      - NEO4J_server_memory_heap_initial__size=512m    # JVM 初始堆内存
+      - NEO4J_server_memory_heap_max__size=1g           # JVM 最大堆内存
+      - NEO4J_server_memory_pagecache_size=512m         # 页面缓存（影响查询性能）
+      
+      # ---- 向量索引支持（Neo4j 5.x 内置，无需额外配置） ----
+      # 向量索引通过 Cypher 的 CREATE VECTOR INDEX 语句创建
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - ontology-net
+
+  # ===========================================================================
+  # WebProtégé 4.0.0 - 协作式本体编辑器
+  # ===========================================================================
+  # 用途：提供 Web 界面进行多人协作本体编辑
+  # 访问地址：http://Linux_IP:8080
+  # 注意：WebProtégé 4.0 需要 MongoDB 作为后端存储
+  webprotege:
+    image: protegeproject/webprotege:4.0.0   # WebProtégé 4.0.0 官方镜像
+    container_name: webprotege
+    restart: unless-stopped
+    ports:
+      - "8080:8080"                           # Web 界面访问端口
+    volumes:
+      - webprotege_data:/srv/webprotege       # 持久化数据
+    environment:
+      - webprotege.mongodb.host=mongodb       # MongoDB 连接地址（指向下面的 mongodb 服务）
+    depends_on:
+      - mongodb                               # 依赖 MongoDB 先启动
+    networks:
+      - ontology-net
+
+  # ===========================================================================
+  # MongoDB - WebProtégé 后端数据库
+  # ===========================================================================
+  # WebProtégé 使用 MongoDB 存储项目数据、用户信息和变更历史
+  mongodb:
+    image: mongo:4.4                          # MongoDB 4.4（WebProtégé 兼容版本）
+    container_name: webprotege-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db                 # 持久化数据
+    # MongoDB 不暴露外部端口，仅供 WebProtégé 内部网络访问
+    # 如需外部连接可取消以下注释
+    # ports:
+    #   - "27017:27017"
+    networks:
+      - ontology-net
+
+  # ===========================================================================
+  # Zookeeper (Kafka 依赖)
+  # ===========================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - ontology-net
+
+  # ===========================================================================
+  # Kafka (消息队列，用于 CDC 实时同步)
+  # ===========================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://${KAFKA_HOST:-localhost}:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - ontology-net
+
+  # ===========================================================================
+  # Debezium (CDC 变更数据捕获)
+  # ===========================================================================
+  # 用途：监听 MySQL Binlog 并将变更实时推送到 Kafka
+  debezium:
+    image: quay.io/debezium/connect:2.4
+    container_name: debezium
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    depends_on:
+      - kafka
+    environment:
+      BOOTSTRAP_SERVERS: 'kafka:29092'
+      GROUP_ID: '1'
+      CONFIG_STORAGE_TOPIC: 'my_connect_configs'
+      OFFSET_STORAGE_TOPIC: 'my_connect_offsets'
+      STATUS_STORAGE_TOPIC: 'my_connect_statuses'
+    networks:
+      - ontology-net
+
+# =============================================================================
+# 持久化数据卷定义
+# =============================================================================
+# Docker 命名卷，数据存储在 Docker 管理的目录中，不会因容器删除而丢失
+volumes:
+  neo4j_data:          # Neo4j 图数据
+    driver: local
+  neo4j_logs:          # Neo4j 日志
+    driver: local
+  neo4j_plugins:       # Neo4j 插件
+    driver: local
+  webprotege_data:     # WebProtégé 项目数据
+    driver: local
+  mongodb_data:        # MongoDB 数据
+    driver: local
+  kafka_data:          # Kafka 数据
+    driver: local
+
+networks:
+  ontology-net:
+    name: ontology-intelligence-net
+    driver: bridge

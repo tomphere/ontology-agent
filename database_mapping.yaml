@@ -1,0 +1,154 @@
+# =============================================================================
+# 企业级本体智能体 - MySQL 到 Neo4j 的完整映射配置文件
+# =============================================================================
+#
+# 【配置规则说明】
+# 本文件定义了 MySQL 关系型数据库的表/字段 如何映射到 Neo4j 图数据库中的
+# 本体类/属性/关系。同步引擎（ontology_intelligence.sync.engine）会读取此文件并动态生成
+# Cypher 语句，无需修改任何 Python 代码。
+#
+# 【映射核心概念】
+# - MySQL 表     →  本体类（Neo4j 节点 Label）
+# - MySQL 字段   →  本体数据属性（Neo4j 节点 Property）
+# - MySQL 外键   →  本体对象属性（Neo4j 关系 Relationship）
+# - MySQL 文本字段 → 向量嵌入（Neo4j 节点的向量 Property，用于模糊搜索）
+#
+# 【字段详解】
+#
+# table_name: (必填) MySQL 中的源数据表名
+#   示例: "devices"
+#
+# entity_class_strategy: (必填) 决定当前表的数据映射为哪个本体类（Neo4j 节点标签）
+#   有两种策略：
+#   - type: "dynamic_column"  → 动态映射：根据表中某个字段的值作为类名
+#     column: "字段名"        → 该字段的实际值即为 Neo4j 节点 Label
+#     示例: device_type 字段值为 "Server"，则节点标签为 Server
+#   - type: "static"          → 静态映射：整张表的所有数据都映射到同一个类
+#     class_name: "类名"      → 固定的 Neo4j 节点 Label
+#     示例: 所有工单都固定映射为 Ticket 类
+#
+# node_id_column: (必填) MySQL 表的主键字段名，用作 Neo4j 节点的唯一标识（id 属性）
+#   示例: "id" 或 "ticket_id"
+#
+# data_properties: (可选) 数据属性映射列表，定义 MySQL 字段到本体数据属性的映射
+#   每个条目包含：
+#   - column: MySQL 表中的字段名
+#   - ontology_property: 对应的本体数据属性名（须与 Protégé 中定义的一致）
+#   示例:
+#     - column: "name"
+#       ontology_property: "hasName"
+#   注意: 本体属性名建议使用驼峰命名，与 Protégé 中定义的 Data Property 名称保持一致
+#
+# vectorize_fields: (可选) 需要转化为向量嵌入的文本字段列表
+#   同步引擎会调用统一 Embedding 配置将这些字段的文本值转为向量
+#   存储为节点属性 "{字段名}_embedding"，用于 Agent 的模糊语义检索
+#   示例: ["issue_description"]  → 生成属性 issue_description_embedding
+#   留空或不配置则跳过向量化: []
+#
+# object_properties: (可选) 对象属性映射列表，定义 MySQL 外键到本体对象属性（图关系）的映射
+#   每个条目包含：
+#   - foreign_key_column: (必填) MySQL 表中的外键字段名
+#   - target_label: (必填) 外键指向的目标实体的本体类名（Neo4j 节点 Label）
+#     这解决了"仅凭外键值无法安全定位目标节点"的问题
+#   - ontology_property: (必填) 对应的本体对象属性名（即 Neo4j 关系类型）
+#   - direction: (必填) 关系箭头方向，相对于当前节点而言
+#     * "INCOMING": 箭头从目标节点指向当前节点
+#       含义: target -[关系]-> 当前节点
+#       示例: Device -[hasTicket]-> Ticket（从 tickets 表角度看，箭头指进来）
+#     * "OUTGOING": 箭头从当前节点指向目标节点
+#       含义: 当前节点 -[关系]-> target
+#       示例: Service -[dependsOn]-> Server（从 services 表角度看，箭头指出去）
+#   示例:
+#     - foreign_key_column: "device_id"
+#       target_label: "IT_Asset"
+#       ontology_property: "hasTicket"
+#       direction: "INCOMING"
+#
+# =============================================================================
+
+mappings:
+  # =========================================================================
+  # 设备表映射 (devices -> Server / Switch / Router 等)
+  # =========================================================================
+  - table_name: "devices"             # MySQL 源表名
+    entity_class_strategy:
+      type: "dynamic_column"          # 动态映射策略
+      column: "device_type"           # 根据 device_type 字段值决定本体类名
+                                       # 例如: device_type="Server" → 节点标签为 Server
+                                       # 例如: device_type="Switch" → 节点标签为 Switch
+    node_id_column: "id"              # 主键字段，作为 Neo4j 节点唯一标识
+
+    # 数据属性映射：MySQL 字段 → 本体数据属性
+    data_properties:
+      - column: "name"                # MySQL 字段: 设备名称
+        ontology_property: "hasName"  # 本体数据属性: hasName (在 Protégé 中定义)
+      - column: "ip_address"                  # MySQL 字段: IP 地址
+        ontology_property: "hasIPAddress"      # 本体数据属性: hasIPAddress
+
+    # 向量化配置：设备表不含需要语义检索的文本字段，留空
+    vectorize_fields: []
+
+    # 对象属性映射：通过新增的 connected_switch_id 建立网络连接关系
+    object_properties:
+      - foreign_key_column: "connected_switch_id" # MySQL 外键字段: 上联交换机 ID (留空则不创建关系)
+        target_label: "Switch"                    # 目标节点类型: Switch
+        ontology_property: "connectedTo"          # 本体对象属性名: connectedTo
+        direction: "OUTGOING"                     # 关系方向: Server/Router -[connectedTo]-> Switch
+
+  # =========================================================================
+  # 工单表映射 (tickets -> Ticket)
+  # =========================================================================
+  - table_name: "tickets"              # MySQL 源表名
+    entity_class_strategy:
+      type: "static"                   # 静态映射策略
+      class_name: "Ticket"             # 所有工单数据都映射为 Ticket 类
+    node_id_column: "ticket_id"        # 主键字段
+
+    # 数据属性映射
+    data_properties:
+      - column: "issue_description"            # MySQL 字段: 故障描述文本
+        ontology_property: "hasDescription"    # 本体数据属性: hasDescription
+      - column: "status"                       # MySQL 字段: 工单状态 (Open/Closed)
+        ontology_property: "hasStatus"         # 本体数据属性: hasStatus
+
+    # 向量化配置：将故障描述文本转为向量，支持 Agent 模糊语义检索
+    # 例如用户问"有没有丢包相关的工单"，即使数据库中写的是"端口频繁丢包"也能匹配
+    vectorize_fields: ["issue_description"]
+
+    # 对象属性映射：通过外键建立工单与设备的关系
+    object_properties:
+      - foreign_key_column: "device_id"    # MySQL 外键字段: 关联的设备 ID
+        target_label: "IT_Asset"           # 外键指向的目标本体类: IT_Asset
+                                            # 使用父类 IT_Asset 而非具体的 Server/Switch
+                                            # 因为设备可能是任意子类型
+        ontology_property: "hasTicket"     # 本体对象属性名: hasTicket
+                                            # 对应 Protégé 中定义的 Object Property
+        direction: "INCOMING"              # 关系方向: IT_Asset -[hasTicket]-> Ticket
+                                            # 从 Ticket 角度看，箭头"进来"
+                                            # 表示"设备拥有此工单"
+
+  # =========================================================================
+  # 服务表映射 (services -> Service)
+  # =========================================================================
+  - table_name: "services"
+    entity_class_strategy:
+      type: "static"                   # 静态映射：所有服务统一映射为 Service 类
+      class_name: "Service"
+    node_id_column: "id"               # 主键字段（如 APP-CRM）
+
+    # 数据属性映射
+    data_properties:
+      - column: "name"                         # MySQL 字段: 服务名称
+        ontology_property: "hasName"           # 本体数据属性: hasName
+      - column: "status"                       # MySQL 字段: 服务状态
+        ontology_property: "hasStatus"         # 本体数据属性: hasStatus
+
+    # 服务表不需要向量化
+    vectorize_fields: []
+
+    # 对象属性映射：通过外键建立服务依赖服务器的关系
+    object_properties:
+      - foreign_key_column: "server_id"        # MySQL 外键字段: 关联的服务器 ID
+        target_label: "Server"                 # 目标节点类型: Server
+        ontology_property: "dependsOn"         # 本体对象属性名: dependsOn
+        direction: "OUTGOING"                  # Service -[dependsOn]-> Server

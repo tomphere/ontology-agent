@@ -1,0 +1,176 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL (Langfuse 主数据库)
+  langfuse-db:
+    image: postgres:15
+    container_name: langfuse-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${LANGFUSE_POSTGRES_PASSWORD:-change_me_postgres_password}
+      - POSTGRES_DB=${LANGFUSE_POSTGRES_DB:-langfuse}
+    ports:
+      - "5432:5432"
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+
+  # 2. Redis (事件处理队列)
+  redis:
+    image: redis:7-alpine
+    container_name: langfuse-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  # 3. ClickHouse (分析数据)
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: langfuse-clickhouse
+    restart: unless-stopped
+    environment:
+      - CLICKHOUSE_DB=langfuse
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD:-change_me_clickhouse_password}
+    ports:
+      - "8123:8123"
+      - "9001:9000"
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # 3. MinIO (本地 S3 兼容对象存储)
+  minio:
+    image: minio/minio:latest
+    container_name: langfuse-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${LANGFUSE_MINIO_ACCESS_KEY:-change_me_minio_access_key}
+      - MINIO_ROOT_PASSWORD=${LANGFUSE_MINIO_SECRET_KEY:-change_me_minio_secret_key}
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    volumes:
+      - langfuse_minio_data:/data
+
+  # 4. MinIO 自动初始化
+  minio-init:
+    image: minio/mc:latest
+    container_name: langfuse-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set myminio http://minio:9000 $${LANGFUSE_MINIO_ACCESS_KEY:-change_me_minio_access_key} $${LANGFUSE_MINIO_SECRET_KEY:-change_me_minio_secret_key}); do echo 'Waiting for MinIO...' && sleep 2; done;
+      /usr/bin/mc mb myminio/langfuse-events --ignore-existing;
+      exit 0;
+      "
+
+  # 6. Langfuse 主程序
+  langfuse:
+    image: langfuse/langfuse:3
+    container_name: langfuse
+    restart: unless-stopped
+    depends_on:
+      - langfuse-db
+      - redis
+      - clickhouse
+      - minio
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      
+      # DB
+      - DATABASE_URL=postgresql://postgres:${LANGFUSE_POSTGRES_PASSWORD:-change_me_postgres_password}@langfuse-db:5432/${LANGFUSE_POSTGRES_DB:-langfuse}
+      
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_AUTH=
+      
+      # ClickHouse
+      - CLICKHOUSE_URL=http://default:${LANGFUSE_CLICKHOUSE_PASSWORD:-change_me_clickhouse_password}@clickhouse:8123/langfuse
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://default:${LANGFUSE_CLICKHOUSE_PASSWORD:-change_me_clickhouse_password}@clickhouse:9000/langfuse
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_HTTP_PORT=8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD:-change_me_clickhouse_password}
+      - CLICKHOUSE_DB=langfuse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      
+      # Auth
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET:-change_me_nextauth_secret}
+      - SALT=${LANGFUSE_SALT:-change_me_langfuse_salt}
+      - NEXTAUTH_URL=${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      
+      # 初始化账号
+      - LANGFUSE_INIT_ORG_ID=default
+      - LANGFUSE_INIT_ORG_NAME=MyOrganization
+      - LANGFUSE_INIT_PROJECT_ID=default
+      - LANGFUSE_INIT_PROJECT_NAME=ontologyAgent
+      - LANGFUSE_INIT_USER_EMAIL=admin@example.com
+      - LANGFUSE_INIT_USER_PASSWORD=${LANGFUSE_INIT_USER_PASSWORD:-change_me_langfuse_admin_password}
+      - TELEMETRY_ENABLED=false
+
+      # MinIO 配置
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse-events
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_MINIO_ACCESS_KEY:-change_me_minio_access_key}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_MINIO_SECRET_KEY:-change_me_minio_secret_key}
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+
+  # 7. Langfuse Worker (事件处理)
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      - langfuse-db
+      - redis
+      - clickhouse
+      - minio
+    environment:
+      # DB
+      - DATABASE_URL=postgresql://postgres:${LANGFUSE_POSTGRES_PASSWORD:-change_me_postgres_password}@langfuse-db:5432/${LANGFUSE_POSTGRES_DB:-langfuse}
+      
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_AUTH=
+      
+      # ClickHouse
+      - CLICKHOUSE_URL=http://default:${LANGFUSE_CLICKHOUSE_PASSWORD:-change_me_clickhouse_password}@clickhouse:8123/langfuse
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://default:${LANGFUSE_CLICKHOUSE_PASSWORD:-change_me_clickhouse_password}@clickhouse:9000/langfuse
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_HTTP_PORT=8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD:-change_me_clickhouse_password}
+      - CLICKHOUSE_DB=langfuse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      
+      # Auth (worker 也需要)
+      - SALT=${LANGFUSE_SALT:-change_me_langfuse_salt}
+      
+      # MinIO 配置
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse-events
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_MINIO_ACCESS_KEY:-change_me_minio_access_key}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_MINIO_SECRET_KEY:-change_me_minio_secret_key}
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+
+volumes:
+  langfuse_db_data:
+    driver: local
+  langfuse_clickhouse_data:
+    driver: local
+  langfuse_minio_data:
+    driver: local

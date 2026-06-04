@@ -1,0 +1,59 @@
+# =============================================================================
+# 应用服务编排（后端 API + 前端 Nginx）
+# =============================================================================
+# 使用: docker compose -f docker-compose.app.yml up -d --build
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # 后端 API 服务
+  # ===========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    container_name: ontology-backend
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./data:/app/data
+      - ./ontology_workspace:/app/ontology_workspace
+      - ./database_mapping.yaml:/app/database_mapping.yaml
+      - ./datasources.yaml:/app/datasources.yaml
+      - ./.env:/app/.env
+    env_file: .env
+    environment:
+      - PYTHONPATH=/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ontology-net
+
+  # ===========================================================================
+  # 前端 Nginx 服务
+  # ===========================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    container_name: ontology-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    networks:
+      - ontology-net
+
+networks:
+  ontology-net:
+    external: true
+    name: ontology-intelligence-net
